@@ -1,0 +1,158 @@
+name: Build iOS App
+
+on:
+  push:
+    branches: [main]
+
+env:
+  CI: "true"
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Xcode preflight
+        run: |
+          echo "=== Xcode preflight ==="
+          xcodebuild -version
+          echo "Developer dir: $(xcode-select -p)"
+          ls -1 /Applications | grep '^Xcode' || true
+          xcrun simctl list devices available | head -40 || true
+
+      - name: Extract source code
+        run: |
+          if [ -f source.zip ]; then
+            echo "=== Extracting source ==="
+            unzip -o source.zip -d project-src
+            node -e "const fs=require('fs'),path=require('path');function walk(d,depth,out){if(depth>4||!fs.existsSync(d))return;for(const e of fs.readdirSync(d,{withFileTypes:true})){if(e.name==='node_modules'||e.name.startsWith('.'))continue;const p=path.join(d,e.name);if(e.isDirectory())walk(p,depth+1,out);}if(fs.existsSync(path.join(d,'package.json')))out.push(d);}const c=[];walk('project-src',0,c);function s(p){try{const j=JSON.parse(fs.readFileSync(path.join(p,'package.json'),'utf8'));const d={...j.dependencies,...j.devDependencies};let x=0;if(d['@capacitor/core'])x+=100;if(j.scripts&&j.scripts.build)x+=70;if(d.vite||d.react||d.vue||d['@angular/core']||d.next||d.svelte)x+=40;if(Array.isArray(j.workspaces)||j.workspaces&&j.workspaces.packages)x-=160;return x-p.split('/').length;}catch(e){return -999;}}c.sort((a,b)=>s(b)-s(a));console.log(c[0]||'');" > .project-root.txt
+            PROJECT_ROOT=$(cat .project-root.txt); rm -f .project-root.txt
+            if [ -z "$PROJECT_ROOT" ]; then
+              echo "No package.json found — checking for static HTML project..."
+              STATIC_ROOT=$(find project-src -maxdepth 4 -name "index.html" -not -path "*/node_modules/*" -exec dirname {} \; | head -1)
+              if [ -z "$STATIC_ROOT" ]; then
+                echo "ERROR: No package.json AND no index.html found in source.zip"
+                exit 1
+              fi
+              PROJECT_ROOT="$STATIC_ROOT"
+              echo "Detected static HTML project at: $PROJECT_ROOT"
+              cat > "$PROJECT_ROOT/package.json" <<'STATICPKG'
+{"name":"static-html-app","version":"1.0.0","private":true,"scripts":{"build":"node -e "const fs=require('fs'),path=require('path');fs.mkdirSync('dist',{recursive:true});function cp(s,d){for(const e of fs.readdirSync(s,{withFileTypes:true})){if(e.name==='node_modules'||e.name==='dist'||e.name==='android'||e.name==='ios'||e.name==='www'||e.name.startsWith('.'))continue;const sp=path.join(s,e.name),dp=path.join(d,e.name);if(e.isDirectory()){fs.mkdirSync(dp,{recursive:true});cp(sp,dp);}else fs.copyFileSync(sp,dp);}}cp('.','dist');if(!fs.existsSync('dist/index.html')&&fs.existsSync('index.html'))fs.copyFileSync('index.html','dist/index.html');console.log('static copy -> dist');""}}
+STATICPKG
+            fi
+            echo "Selected project root: $PROJECT_ROOT"
+            shopt -s dotglob
+            cp -r "$PROJECT_ROOT"/* ./ 2>/dev/null || true
+            shopt -u dotglob
+            rm -rf project-src source.zip
+          else
+            echo "No source.zip supplied — creating URL/native shell project"
+            cat > package.json <<'URLPKG'
+{"name":"url-ios-app","version":"1.0.0","private":true,"scripts":{"build":"node -e "const fs=require('fs');fs.mkdirSync('dist',{recursive:true});fs.writeFileSync('dist/index.html','<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>App</title></head><body><div id=\"root\"></div></body></html>');""}}
+URLPKG
+          fi
+          rm -f capacitor.config.ts capacitor.config.js capacitor.config.json
+          echo "=== Source ready ==="
+
+      - name: Install dependencies
+        run: |
+          rm -f bun.lockb
+          npm install --legacy-peer-deps
+
+      - name: Build web project
+        run: |
+          if [ -f package.json ] && grep -q '"build"' package.json; then
+            npm run build 2>&1 || { echo "ERROR: Could not build"; exit 1; }
+          elif [ -f index.html ]; then
+            mkdir -p dist
+            cp -r ./* dist/ 2>/dev/null || true
+          else
+            echo "ERROR: No build script and no static index.html"
+            exit 1
+          fi
+          if [ ! -s dist/index.html ] && [ ! -s build/index.html ] && [ ! -s www/index.html ] && [ ! -s out/index.html ] && [ ! -s .output/public/index.html ]; then
+            echo "ERROR: Build output verification failed — no index.html found"
+            find . -maxdepth 3 -type f | sort | head -120
+            exit 1
+          fi
+
+      - name: Install Capacitor
+        run: |
+          npm install @capacitor/core@6.2.0 @capacitor/cli@6.2.0 --legacy-peer-deps
+          WEB_DIR=""
+          for dir in dist build www out .output/public; do
+            if [ -d "$dir" ] && [ "$(ls -A $dir 2>/dev/null)" ]; then
+              WEB_DIR="$dir"
+              break
+            fi
+          done
+          if [ -z "$WEB_DIR" ]; then
+            echo "ERROR: No usable web output directory found"
+            exit 1
+          fi
+          rm -f capacitor.config.ts capacitor.config.js capacitor.config.json
+          npx cap init "Earlymarketug" "com.erly.app" --web-dir "$WEB_DIR"
+
+          npm install @capacitor/ios@6.2.0 --legacy-peer-deps
+          npx cap add ios
+
+      - name: Sync Capacitor
+        run: npx cap sync ios
+
+
+      - name: Build iOS (Simulator)
+        run: |
+          cd ios/App
+          DESTINATION=$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ {print $2; exit}')
+          if [ -n "$DESTINATION" ]; then
+            DEST="platform=iOS Simulator,id=$DESTINATION"
+          else
+            DEST="generic/platform=iOS Simulator"
+          fi
+          echo "Using destination: $DEST"
+          xcodebuild build \
+            -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Debug \
+            -destination "$DEST" \
+            -derivedDataPath build \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_ALLOWED=NO \
+            | tail -50
+
+      - name: Package .app
+        run: |
+          APP_PATH=$(find ios/App/build -name "*.app" -path "*/Debug-iphonesimulator/*" | head -1)
+          if [ -n "$APP_PATH" ]; then
+            cd $(dirname "$APP_PATH")
+            zip -r "$GITHUB_WORKSPACE/ios-app.zip" "$(basename "$APP_PATH")"
+            echo "app_found=true" >> $GITHUB_ENV
+          else
+            echo "No .app found"
+            echo "app_found=false" >> $GITHUB_ENV
+          fi
+
+      - name: Upload iOS Simulator App
+        if: env.app_found == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-app
+          path: ios-app.zip
+          retention-days: 7
+          if-no-files-found: warn
+
+
+      - name: Upload Xcode Project
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-xcode-project
+          path: |
+            ios/
+          retention-days: 7
+          if-no-files-found: warn
