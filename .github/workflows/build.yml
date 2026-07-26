@@ -42,9 +42,9 @@ jobs:
               fi
               PROJECT_ROOT="$STATIC_ROOT"
               echo "Detected static HTML project at: $PROJECT_ROOT"
-              cat > "$PROJECT_ROOT/package.json" <<'STATICPKG'
-{"name":"static-html-app","version":"1.0.0","private":true,"scripts":{"build":"node -e "const fs=require('fs'),path=require('path');fs.mkdirSync('dist',{recursive:true});function cp(s,d){for(const e of fs.readdirSync(s,{withFileTypes:true})){if(e.name==='node_modules'||e.name==='dist'||e.name==='android'||e.name==='ios'||e.name==='www'||e.name.startsWith('.'))continue;const sp=path.join(s,e.name),dp=path.join(d,e.name);if(e.isDirectory()){fs.mkdirSync(dp,{recursive:true});cp(sp,dp);}else fs.copyFileSync(sp,dp);}}cp('.','dist');if(!fs.existsSync('dist/index.html')&&fs.existsSync('index.html'))fs.copyFileSync('index.html','dist/index.html');console.log('static copy -> dist');""}}
-STATICPKG
+              echo 'Y29uc3QgZnMgPSByZXF1aXJlKCdmcycpLCBwYXRoID0gcmVxdWlyZSgncGF0aCcpOwpjb25zdCBTS0lQID0gbmV3IFNldChbJ25vZGVfbW9kdWxlcycsICdkaXN0JywgJ2FuZHJvaWQnLCAnaW9zJywgJ3d3dycsICduYi1idWlsZC5qcyddKTsKZnMubWtkaXJTeW5jKCdkaXN0JywgeyByZWN1cnNpdmU6IHRydWUgfSk7CmZ1bmN0aW9uIGNwKHMsIGQpIHsKICBmb3IgKGNvbnN0IGUgb2YgZnMucmVhZGRpclN5bmMocywgeyB3aXRoRmlsZVR5cGVzOiB0cnVlIH0pKSB7CiAgICBpZiAoU0tJUC5oYXMoZS5uYW1lKSB8fCBlLm5hbWUuc3RhcnRzV2l0aCgnLicpKSBjb250aW51ZTsKICAgIGNvbnN0IHNwID0gcGF0aC5qb2luKHMsIGUubmFtZSksIGRwID0gcGF0aC5qb2luKGQsIGUubmFtZSk7CiAgICBpZiAoZS5pc0RpcmVjdG9yeSgpKSB7IGZzLm1rZGlyU3luYyhkcCwgeyByZWN1cnNpdmU6IHRydWUgfSk7IGNwKHNwLCBkcCk7IH0KICAgIGVsc2UgZnMuY29weUZpbGVTeW5jKHNwLCBkcCk7CiAgfQp9CmNwKCcuJywgJ2Rpc3QnKTsKaWYgKCFmcy5leGlzdHNTeW5jKCdkaXN0L2luZGV4Lmh0bWwnKSAmJiBmcy5leGlzdHNTeW5jKCdpbmRleC5odG1sJykpIGZzLmNvcHlGaWxlU3luYygnaW5kZXguaHRtbCcsICdkaXN0L2luZGV4Lmh0bWwnKTsKY29uc29sZS5sb2coJ3N0YXRpYyBjb3B5IC0+IGRpc3QnKTsK' | openssl base64 -d -A > "$PROJECT_ROOT/nb-build.js"
+              echo 'ewogICJuYW1lIjogInN0YXRpYy1odG1sLWFwcCIsCiAgInZlcnNpb24iOiAiMS4wLjAiLAogICJwcml2YXRlIjogdHJ1ZSwKICAic2NyaXB0cyI6IHsKICAgICJidWlsZCI6ICJub2RlIG5iLWJ1aWxkLmpzIgogIH0KfQo=' | openssl base64 -d -A > "$PROJECT_ROOT/package.json"
+              node -e "JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'))" "$PROJECT_ROOT/package.json" || { echo "ERROR: synthesized package.json is invalid JSON"; exit 1; }
             fi
             echo "Selected project root: $PROJECT_ROOT"
             shopt -s dotglob
@@ -53,9 +53,11 @@ STATICPKG
             rm -rf project-src source.zip
           else
             echo "No source.zip supplied — creating URL/native shell project"
-            cat > package.json <<'URLPKG'
-{"name":"url-ios-app","version":"1.0.0","private":true,"scripts":{"build":"node -e "const fs=require('fs');fs.mkdirSync('dist',{recursive:true});fs.writeFileSync('dist/index.html','<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>App</title></head><body><div id=\"root\"></div></body></html>');""}}
-URLPKG
+            echo 'Y29uc3QgZnMgPSByZXF1aXJlKCdmcycpOwpmcy5ta2RpclN5bmMoJ2Rpc3QnLCB7IHJlY3Vyc2l2ZTogdHJ1ZSB9KTsKY29uc3QgaHRtbCA9IFsKICAnPCFkb2N0eXBlIGh0bWw+JywKICAnPGh0bWwgbGFuZz0iZW4iPicsCiAgJzxoZWFkPicsCiAgJyAgPG1ldGEgY2hhcnNldD0idXRmLTgiPicsCiAgJyAgPG1ldGEgbmFtZT0idmlld3BvcnQiIGNvbnRlbnQ9IndpZHRoPWRldmljZS13aWR0aCxpbml0aWFsLXNjYWxlPTEiPicsCiAgJyAgPHRpdGxlPkFwcDwvdGl0bGU+JywKICAnPC9oZWFkPicsCiAgJzxib2R5PjxkaXYgaWQ9InJvb3QiPjwvZGl2PjwvYm9keT4nLAogICc8L2h0bWw+JywKXS5qb2luKCdcbicpOwpmcy53cml0ZUZpbGVTeW5jKCdkaXN0L2luZGV4Lmh0bWwnLCBodG1sKTsKY29uc29sZS5sb2coJ3NoZWxsIGluZGV4Lmh0bWwgLT4gZGlzdCcpOwo=' | openssl base64 -d -A > nb-build.js
+            echo 'ewogICJuYW1lIjogInVybC1pb3MtYXBwIiwKICAidmVyc2lvbiI6ICIxLjAuMCIsCiAgInByaXZhdGUiOiB0cnVlLAogICJzY3JpcHRzIjogewogICAgImJ1aWxkIjogIm5vZGUgbmItYnVpbGQuanMiCiAgfQp9Cg==' | openssl base64 -d -A > package.json
+            node -e "JSON.parse(require('fs').readFileSync('package.json','utf8'))" || { echo "ERROR: synthesized package.json is invalid JSON"; exit 1; }
+
+
           fi
           rm -f capacitor.config.ts capacitor.config.js capacitor.config.json
           echo "=== Source ready ==="
